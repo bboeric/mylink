@@ -8,5 +8,6 @@
 - [x] 7주차: 관리 페이지 `/mypage`
 - [x] Firebase 콘솔 설정(Authentication Google, Firestore, 보안 규칙 게시)
 - [x] 로컬(localhost) 실제 Google 계정 통합 테스트
-- [ ] GitHub 저장소 업로드
-- [ ] Vercel 배포 + 환경변수 등록 + Firebase Authorized domains에 배포 도메인 추가
+- [x] GitHub 저장소 업로드 (https://github.com/bboeric/mylink)
+- [x] Vercel 배포 + 환경변수 등록
+- [ ] Firebase 승인된 도메인에 실제 Vercel 주소 추가 후 배포 사이트에서 로그인 확인
