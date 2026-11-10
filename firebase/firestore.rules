@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isOwner(userId) { return signedIn() && request.auth.uid == userId; }
+    function validUsername(name) {
+      return name is string && name.matches('^[a-z0-9_]{3,24}$');
+    }
+    function profileKeys() {
+      return request.resource.data.keys().hasOnly([
+        'uid', 'username', 'displayName', 'bio', 'photoURL', 'createdAt', 'updatedAt'
+      ]);
+    }
+    function validProfile(userId) {
+      return profileKeys()
+        && request.resource.data.uid == userId
+        && validUsername(request.resource.data.username)
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() > 0
+        && request.resource.data.displayName.size() <= 60
+        && request.resource.data.bio is string
+        && request.resource.data.bio.size() <= 250
+        && request.resource.data.photoURL is string
+        && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.username)).data.uid == userId;
+    }
+    function validLink() {
+      return request.resource.data.keys().hasOnly([
+          'title', 'url', 'clickCount', 'position', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 100
+        && request.resource.data.url is string
+        && request.resource.data.url.matches('^https?://.*')
+        && request.resource.data.url.size() <= 2048
+        && request.resource.data.clickCount is int
+        && request.resource.data.clickCount >= 0
+        && request.resource.data.position is number;
+    }
+    function onlyIncrementClick() {
+      return resource.data.clickCount is int
+        && request.resource.data.clickCount == resource.data.clickCount + 1
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clickCount']);
+    }
+
+    match /users/{userId} {
+      // Public profiles: readable by anyone, writable only by their owner.
+      allow get: if true;
+      allow list: if false;
+      allow create: if isOwner(userId) && validProfile(userId)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if isOwner(userId) && validProfile(userId)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.photoURL == resource.data.photoURL
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+
+      match /links/{linkId} {
+        allow read: if true;
+        allow create: if isOwner(userId) && validLink()
+          && request.resource.data.clickCount == 0
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if
+          // Owner can edit title/URL but not forge statistics or ownership.
+          (isOwner(userId) && validLink()
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['title', 'url', 'updatedAt'])
+            && request.resource.data.updatedAt == request.time)
+          ||
+          // Any visitor can request exactly one atomic click increment.
+          // For production-grade anti-abuse/rate limiting, use a server endpoint.
+          onlyIncrementClick();
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // Username reservation provides a globally unique public /username path.
+    match /usernames/{username} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if signedIn()
+        && validUsername(username)
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == username;
+      allow update: if false;
+      allow delete: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.username != username;
+    }
+  }
+}
